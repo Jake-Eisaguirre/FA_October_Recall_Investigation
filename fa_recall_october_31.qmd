@@ -74,18 +74,18 @@ flv_counts <- ms %>%
             .groups = "drop")
 
 
-explore_asn <- ms %>% 
-  filter(CREW_ID %in% rlv_FAs$CREW_ID,
-         PAIRING_DATE == "2024-10-31" |
-         TO_DATE == "2024-101-31") %>% 
-  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
-  group_by(CREW_ID) %>% 
-  filter(update_dt == max(update_dt),
-         TRANSACTION_CODE %in% c("ASN")) %>% 
-  ungroup() %>% 
-  group_by(BASE) %>% 
-  summarize(#RLV_Counts = n_distinct(CREW_ID),
-            ASN_Counts = n_distinct(CREW_ID), .groups = "drop")
+# explore_asn <- ms %>% 
+#   filter(CREW_ID %in% rlv_FAs$CREW_ID,
+#          PAIRING_DATE == "2024-10-31" |
+#          TO_DATE == "2024-101-31") %>% 
+#   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
+#   group_by(CREW_ID) %>% 
+#   filter(update_dt == max(update_dt),
+#          TRANSACTION_CODE %in% c("ASN")) %>% 
+#   ungroup() %>% 
+#   group_by(BASE) %>% 
+#   summarize(#RLV_Counts = n_distinct(CREW_ID),
+#             ASN_Counts = n_distinct(CREW_ID), .groups = "drop")
 
 
 explore_drop <- ms %>% 
@@ -148,9 +148,9 @@ transaction_path <- ms %>%
   group_by(TRANSACTION_CODE, BASE) %>% 
   reframe(n=n())
 
-t <- transaction_path %>% 
-  group_by(CREW_ID) %>% 
-  filter(TRANSACTION_CODE %in% c("N85", "RRD"))
+# t <- transaction_path %>% 
+#   group_by(CREW_ID) %>% 
+#   filter(TRANSACTION_CODE %in% c("N85", "RRD"))
 
 
 ggplot(transaction_path, aes(x = TRANSACTION_CODE, y = n, fill = BASE)) +
@@ -165,7 +165,7 @@ ggplot(transaction_path, aes(x = TRANSACTION_CODE, y = n, fill = BASE)) +
         plot.subtitle = element_text(size = 7)) +  # Make subtitle smaller
   scale_y_continuous(expand = expansion(mult = c(0.01, 0.05)))
  # Remove space below bars and add a small buffer at the top
- # Rotate x-axis labels for readability
+ # Rotate x-axis labels for readabilityR
 
 ggsave(here("figures", "Oct_31st_Final_Transactions.jpeg"), width = 12, height = 7, units = c("in"))
 
@@ -173,11 +173,19 @@ ggsave(here("figures", "Oct_31st_Final_Transactions.jpeg"), width = 12, height =
 ```
 
 ```{r}
+
+
+
 n_85_counts <- ms_85 %>% 
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
+  relocate(update_dt, .after = TRANSACTION_CODE) %>% 
   group_by(CREW_ID, PAIRING_NO, PAIRING_DATE) %>% 
-  filter(update_dt == max(update_dt), TRANSACTION_CODE == "N85") %>% 
+  mutate(temp_id = cur_group_id()) %>% 
   ungroup() %>% 
+  group_by(temp_id) %>% 
+  mutate(flag = if_else(any(TRANSACTION_CODE == "N85"), 1, 0)) %>% 
+  ungroup() %>% 
+  filter(TRANSACTION_CODE == "N85") %>% 
   group_by(PAIRING_DATE, BASE, TO_DATE) %>% 
   summarize(FA_N85_Counts = n_distinct(CREW_ID), .groups = "drop") %>% 
   # Complete the date range for each base and fill missing counts with zero
