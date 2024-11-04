@@ -33,9 +33,15 @@ tryCatch({  # Attempts the database connection and catches any errors
 # Set search_path
 dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")  # Sets the working schema to 'CREW_ANALYTICS' in the database
 
-q_master_history <- "SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE = '2024-10-31';"
+q_master_history <- "SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE BETWEEN '2024-09-19' AND '2024-10-31';"
 
 ms <- dbGetQuery(db_connection, q_master_history) 
+
+
+
+q_master_history_85 <- "SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE > '2024-04-20';"
+
+ms_85 <- dbGetQuery(db_connection, q_master_history_85) 
 
 
 ```
@@ -46,29 +52,32 @@ t <- ms %>%
   filter(CREW_INDICATOR == "FA")
 
 rlv_FAs <- ms %>% 
+  filter(PAIRING_DATE == "2024-10-31" | TO_DATE == "2024-10-31") %>% 
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
   group_by(CREW_ID, PAIRING_NO, PAIRING_DATE) %>% 
-  filter(update_dt == max(update_dt), 
+  filter(#update_dt == max(update_dt), 
          CREW_INDICATOR == "FA",
-         TRANSACTION_CODE %in% c("RLV")) %>% 
+         TRANSACTION_CODE %in% c("RLV", "RSV")) %>% 
   ungroup() %>% 
   select(CREW_ID) %>% 
   distinct()
   
 flv_counts <- ms %>% 
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
-  group_by(CREW_ID, PAIRING_NO, PAIRING_DATE) %>% 
-  filter(update_dt == max(update_dt), 
+  #group_by(CREW_ID, PAIRING_NO, PAIRING_DATE) %>% 
+  filter(#update_dt == max(update_dt), 
          CREW_INDICATOR == "FA",
-         TRANSACTION_CODE %in% c("RLV")) %>% 
+         TRANSACTION_CODE == "RLV") %>% 
   ungroup()  %>% 
-  group_by(PAIRING_DATE, BASE) %>% 
+  group_by(BASE, PAIRING_DATE) %>% 
   summarize(RLV_Counts = n_distinct(CREW_ID),
             .groups = "drop")
 
 
 explore_asn <- ms %>% 
-  filter(CREW_ID %in% rlv_FAs$CREW_ID) %>% 
+  filter(CREW_ID %in% rlv_FAs$CREW_ID,
+         PAIRING_DATE == "2024-10-31" |
+         TO_DATE == "2024-101-31") %>% 
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
   group_by(CREW_ID) %>% 
   filter(update_dt == max(update_dt),
@@ -80,28 +89,134 @@ explore_asn <- ms %>%
 
 
 explore_drop <- ms %>% 
-  filter(CREW_ID %in% rlv_FAs$CREW_ID) %>% 
-  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
-  group_by(CREW_ID) %>% 
-  filter(update_dt == max(update_dt), 
-         TRANSACTION_CODE %in% c("SOP", "2SK", "FLV", "UNA", "FLS", "FLU", "N/S", "PER", "MGR", "RSK")) %>% 
-  ungroup() %>% 
-  group_by(PAIRING_DATE, BASE) %>% 
-  summarize(#RLV_Counts = n_distinct(CREW_ID),
-            Drop_Counts = n_distinct(CREW_ID), .groups = "drop")
+  filter(
+    CREW_ID %in% rlv_FAs$CREW_ID,
+    PAIRING_DATE == "2024-10-31" | TO_DATE == "2024-10-31",
+    TRANSACTION_CODE %in% c("SOP", "2SK", "FLV", "UNA", "FLS", "FLU", "N/S", "PER", "MGR", "RSK",
+                            "FLP", "PUV", "2JD", "2DF", "PLS", "MIL", "N/Q", "PAY", "VCI", "VC2","VCB", 
+                            "N85", "2CB", "UNI")
+  ) %>% 
+  
+  group_by(UPDATE_DATE, BASE) %>% 
+  summarize(Drop_Counts = n_distinct(CREW_ID), .groups = "drop") %>% 
+  complete(UPDATE_DATE = seq(min(UPDATE_DATE), max(UPDATE_DATE), by = "day"),
+           BASE = c("HNL", "LAX"),
+           fill = list(Drop_Counts = 0)) %>% 
+  filter(!BASE == "LAX") %>% 
+  mutate(Drop_Counts = if_else(Drop_Counts > 0, -1*Drop_Counts, Drop_Counts))
 
 
+ggplot(explore_drop, aes(x = UPDATE_DATE, y = Drop_Counts, color = BASE)) +
+  geom_line(size = 0.5) +                           # Line plot for trends over time
+  geom_point(size = 2) +                            # Points for individual counts
+  scale_color_manual(values = c("purple", "pink")) +  # Use Hawaiian Airlines' color palette
+  labs(title = "Degradation of Oct. 31 Reserve Coverage by Day",
+       x = "Transaction Date",
+       y = "Number of Reserves Removed",
+       color = "Base") +
+  scale_x_date(date_breaks = "3 day", date_labels = "%Y-%m-%d") +  # Show every 3 days on x-axis
+  #scale_y_reverse(limits = c(0, -50)) +            # Set y-axis to start at 0 and end at -50
+  theme_classic() +                                # Clean theme with larger text for readability
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))        # Rotate x-axis labels for readability
+
+ggsave(here("figures", "Reserves_Removed_Waterfall.jpeg"), width = 12, height = 7, units = c("in"))
 ```
+
 
 ```{r}
 
 transaction_path <- ms %>% 
-  filter(CREW_ID %in% rlv_FAs$CREW_ID) %>% 
+  filter(CREW_ID %in% rlv_FAs$CREW_ID,
+         PAIRING_DATE == "2024-10-31" | TO_DATE == "2024-10-31", 
+         BASE == "HNL") %>% 
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
   group_by(CREW_ID) %>% 
-  #filter(update_dt == max(update_dt)) %>% 
-  arrange(CREW_ID, update_dt) # Sort by CREW_ID
+  filter(update_dt == max(update_dt)) %>%
+  relocate(update_dt, .after = TRANSACTION_CODE) %>%
+  mutate(flag = if_else(TRANSACTION_CODE == "RRD" & n() > 1, 0, 1),
+         flag_2 = if_else(TRANSACTION_CODE == "RSK" & n() > 1, 0, 1),
+         flag_3 = if_else(TRANSACTION_CODE == "RAD" & n() > 1, 0, 1),
+         #flag_4 = if_else(TRANSACTION_CODE == "ASN" & n() > 1, 0, 1),
+         #flag_5 = if_else(TRANSACTION_CODE == "SNO" & n() > 1, 0, 1),
+         #flag_6 = if_else(TRANSACTION_CODE == "2SK" & n() > 1, 0, 1),
+         temp_id = cur_group_id()) %>%
+  filter(flag == 1,
+         flag_2 == 1,
+         flag_3 == 1) %>%
+  #filter(duplicated(temp_id)) %>% 
+  ungroup() %>% 
+  group_by(TRANSACTION_CODE, BASE) %>% 
+  reframe(n=n())
 
-write_csv(transaction_path, here("October_31_FA_Transaction_Paths.csv"))
+t <- transaction_path %>% 
+  group_by(CREW_ID) %>% 
+  filter(TRANSACTION_CODE %in% c("N85", "RRD"))
+
+
+ggplot(transaction_path, aes(x = TRANSACTION_CODE, y = n, fill = BASE)) +
+  geom_col(position = position_dodge(preserve = "single")) +  # Dodge position for side-by-side bars, preserving width
+  scale_fill_manual(values = c("purple", "pink")) +  # Hawaiian Airlines' colors for HNL and LAX
+  labs(title = "FA Reserve Final Transaction Code for October 31st, 2024",
+       x = "Transaction Code",
+       y = "Count",
+       fill = "Base") +
+  theme_classic() +  # Clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for readability
+        plot.subtitle = element_text(size = 7)) +  # Make subtitle smaller
+  scale_y_continuous(expand = expansion(mult = c(0.01, 0.05)))
+ # Remove space below bars and add a small buffer at the top
+ # Rotate x-axis labels for readability
+
+ggsave(here("figures", "Oct_31st_Final_Transactions.jpeg"), width = 12, height = 7, units = c("in"))
+
+#write_csv(transaction_path, here("October_31_FA_Transaction_Paths.csv"))
+```
+
+```{r}
+n_85_counts <- ms_85 %>% 
+  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>% 
+  group_by(CREW_ID, PAIRING_NO, PAIRING_DATE) %>% 
+  filter(update_dt == max(update_dt), TRANSACTION_CODE == "N85") %>% 
+  ungroup() %>% 
+  group_by(PAIRING_DATE, BASE, TO_DATE) %>% 
+  summarize(FA_N85_Counts = n_distinct(CREW_ID), .groups = "drop") %>% 
+  # Complete the date range for each base and fill missing counts with zero
+  complete(PAIRING_DATE = seq.Date(min(ms$PAIRING_DATE), max(ms$PAIRING_DATE), by = "day"), BASE, 
+           fill = list(FA_N85_Counts = 0)) %>% 
+  mutate(PAIRING_YEAR_MONTH = format(PAIRING_DATE, "%Y-%m")) %>% 
+  ungroup() %>% 
+  group_by(TO_DATE, BASE) %>% 
+  reframe(FA_N85_Counts = sum(FA_N85_Counts)) %>% 
+  rename(PAIRING_DATE = TO_DATE)
+
+```
+
+```{r}
+ggplot(data = n_85_counts, aes(x = PAIRING_DATE, y = FA_N85_Counts, fill = BASE)) +
+  geom_col(width = 0.8) +
+  labs(
+    title = "FA N85 Counts by Pairing Date",
+    x = "Pairing Date (Year-Month)",
+    y = "FA N85 Counts"
+  ) +
+  scale_fill_manual(values = c("#5A2D81", "#EA4D8D")) +
+  scale_x_date(date_breaks = "10 days", date_labels = "%Y-%m-%d") +  # Display every year-month
+  scale_y_continuous(expand = c(0, 0)) +  # Remove y-axis padding
+  facet_wrap(~ BASE, ncol = 1, scales = "free_y") +  # Add x-axis at the bottom of both facets
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for readability
+    #strip.background = element_blank(),  # Remove box around facet titles
+    strip.text = element_text(size = 12, face = "bold"),  # Adjust facet title text size and style
+    legend.position = "none"  # Remove legend as each chart is specific to one base
+  ) +
+  xlab("Pairing Date")
+
+
+ggsave(here("figures", "FA_N85.jpeg"), width = 12, height = 7, units = c("in"))
+
 ```
 
